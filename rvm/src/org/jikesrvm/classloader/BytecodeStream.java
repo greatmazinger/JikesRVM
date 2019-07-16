@@ -13,19 +13,12 @@
 package org.jikesrvm.classloader;
 
 import static org.jikesrvm.classloader.BytecodeConstants.*;
-import static org.jikesrvm.classloader.ClassLoaderConstants.CP_DOUBLE;
-import static org.jikesrvm.classloader.ClassLoaderConstants.CP_FLOAT;
-import static org.jikesrvm.classloader.ClassLoaderConstants.CP_INT;
-import static org.jikesrvm.classloader.ClassLoaderConstants.CP_LONG;
-import static org.jikesrvm.classloader.ClassLoaderConstants.CP_STRING;
 import static org.jikesrvm.runtime.JavaSizeConstants.BITS_IN_BYTE;
 import static org.jikesrvm.runtime.JavaSizeConstants.BYTES_IN_INT;
 import static org.jikesrvm.runtime.JavaSizeConstants.LOG_BYTES_IN_INT;
 
 import org.jikesrvm.VM;
-import org.jikesrvm.runtime.Statics;
 import org.vmmagic.pragma.Inline;
-import org.vmmagic.unboxed.Offset;
 
 /**
  * Provides minimal abstraction layer to a stream of bytecodes
@@ -51,33 +44,28 @@ public class BytecodeStream {
   }
 
   /**
-   * Returns the method that this bytecode stream is from
-   * @return method
+   * @return the method that this bytecode stream is from
    */
   public final NormalMethod getMethod() {
     return method;
   }
 
   /**
-   * Returns the declaring class that this bytecode stream is from
-   * @return method
+   * @return the declaring class that this bytecode stream is from
    */
   public final RVMClass getDeclaringClass() {
     return method.getDeclaringClass();
   }
 
   /**
-   * Returns the length of the bytecode stream
-   * Returns 0 if the method doesn't have any bytecodes
-   *         (i.e. is abstract or native)
-   * @return bytecode stream length
+   * @return bytecode stream length. Returns {@code 0} if the method
+   *  doesn't have any bytecodes (i.e. is abstract or native)
    */
   public final int length() {
     return bcLength;
   }
 
   /**
-   * Returns the current bytecode index
    * @return the current bytecode index
    */
   public final int index() {
@@ -85,7 +73,7 @@ public class BytecodeStream {
   }
 
   /**
-   * Resets the stream to the beginning
+   * Resets the stream to the beginning.
    * @see #reset(int)
    */
   public final void reset() {
@@ -93,8 +81,8 @@ public class BytecodeStream {
   }
 
   /**
-   * Resets the stream to a given position
-   * Use with caution
+   * Resets the stream to a given position.
+   * Use with caution!
    * @param index the position to reset the stream to
    * @see #reset()
    */
@@ -171,8 +159,8 @@ public class BytecodeStream {
   }
 
   /**
-   * Skips the current instruction (without using the opcode field)
-   * A slightly optimized version of skipInstruction()
+   * Skips the current instruction (without using the opcode field).
+   * A slightly optimized version of skipInstruction().
    * @param opcode current opcode
    * @param wide whether current instruction follows wide
    * @see #skipInstruction()
@@ -189,8 +177,8 @@ public class BytecodeStream {
   }
 
   /**
-   * Returns a signed byte value
-   * Used for bipush
+   * Returns a signed byte value.<p>
+   * Used for bipush.
    * @return signed byte value
    */
   public final int getByteValue() {
@@ -199,8 +187,8 @@ public class BytecodeStream {
   }
 
   /**
-   * Returns a signed short value
-   * Used for sipush
+   * Returns a signed short value.<p>
+   * Used for sipush.
    * @return signed short value
    */
   public final int getShortValue() {
@@ -209,7 +197,7 @@ public class BytecodeStream {
   }
 
   /**
-   * Returns the number of the local (as an unsigned byte)
+   * Returns the number of the local (as an unsigned byte).<p>
    * Used for iload, lload, fload, dload, aload,
    *          istore, lstore, fstore, dstore, astore,
    *          iinc, ret
@@ -227,7 +215,7 @@ public class BytecodeStream {
   }
 
   /**
-   * Returns the wide number of the local (as an unsigned short)
+   * Returns the wide number of the local (as an unsigned short).<p>
    * Used for iload, lload, fload, dload, aload,
    *          istore, lstore, fstore, dstore, astore,
    *          iinc prefixed by wide
@@ -469,10 +457,7 @@ public class BytecodeStream {
    */
   public final FieldReference getFieldReference() {
     if (VM.VerifyAssertions) {
-      VM._assert(opcode == JBC_getstatic ||
-                 opcode == JBC_putstatic ||
-                 opcode == JBC_getfield ||
-                 opcode == JBC_putfield);
+      VM._assert(JBC_isFieldAccess(opcode));
     }
     return getDeclaringClass().getFieldRef(readUnsignedShort());
   }
@@ -485,42 +470,33 @@ public class BytecodeStream {
    */
   public final FieldReference getFieldReference(int[] constantPool) {
     if (VM.VerifyAssertions) {
-      VM._assert(opcode == JBC_getstatic ||
-                 opcode == JBC_putstatic ||
-                 opcode == JBC_getfield ||
-                 opcode == JBC_putfield);
+      VM._assert(JBC_isFieldAccess(opcode));
     }
-    return ClassFileReader.getFieldRef(constantPool, readUnsignedShort());
+    return ConstantPool.getFieldRef(constantPool, readUnsignedShort());
   }
   /**
-   * Returns a reference to a field.<p>
+   * Returns a reference to a method.<p>
    * Used for invokevirtual, invokespecial, invokestatic, invokeinterface
    * @return method reference
    */
   public final MethodReference getMethodReference() {
     if (VM.VerifyAssertions) {
-      VM._assert(opcode == JBC_invokevirtual ||
-                 opcode == JBC_invokespecial ||
-                 opcode == JBC_invokestatic ||
-                 opcode == JBC_invokeinterface);
+      VM._assert(JBC_isJava6Call(opcode));
     }
     return getDeclaringClass().getMethodRef(readUnsignedShort());
   }
 
   /**
-   * Returns a reference to a field, for use prior to the class being loaded.<p>
+   * Returns a reference to a method, for use prior to the class being loaded.<p>
    * Used for invokevirtual, invokespecial, invokestatic, invokeinterface
    * @param constantPool the constant pool for the class
    * @return method reference
    */
   public final MethodReference getMethodReference(int[] constantPool) {
     if (VM.VerifyAssertions) {
-      VM._assert(opcode == JBC_invokevirtual ||
-                 opcode == JBC_invokespecial ||
-                 opcode == JBC_invokestatic ||
-                 opcode == JBC_invokeinterface);
+      VM._assert(JBC_isJava6Call(opcode));
     }
-    return ClassFileReader.getMethodRef(constantPool, readUnsignedShort());
+    return ConstantPool.getMethodRef(constantPool, readUnsignedShort());
   }
 
   /**
@@ -712,12 +688,9 @@ public class BytecodeStream {
    */
   public final int getIntConstant(int index) {
     if (VM.VerifyAssertions) {
-      VM._assert((opcode == JBC_ldc || opcode == JBC_ldc_w) &&
-                 getDeclaringClass().getLiteralDescription(index) == CP_INT);
+      VM._assert(opcode == JBC_ldc || opcode == JBC_ldc_w);
     }
-    Offset offset = getDeclaringClass().getLiteralOffset(index);
-    int val = Statics.getSlotContentsAsInt(offset);
-    return val;
+    return getDeclaringClass().getIntLiteral(index);
   }
 
   /**
@@ -735,11 +708,9 @@ public class BytecodeStream {
    */
   public final long getLongConstant(int index) {
     if (VM.VerifyAssertions) {
-      VM._assert(opcode == JBC_ldc2_w && getDeclaringClass().getLiteralDescription(index) == CP_LONG);
+      VM._assert(opcode == JBC_ldc2_w);
     }
-    Offset offset = getDeclaringClass().getLiteralOffset(index);
-    long val = Statics.getSlotContentsAsLong(offset);
-    return val;
+    return getDeclaringClass().getLongLiteral(index);
   }
 
   /**
@@ -757,13 +728,9 @@ public class BytecodeStream {
    */
   public final float getFloatConstant(int index) {
     if (VM.VerifyAssertions) {
-      VM._assert((opcode == JBC_ldc || opcode == JBC_ldc_w) &&
-                 getDeclaringClass().getLiteralDescription(index) == CP_FLOAT);
+      VM._assert(opcode == JBC_ldc || opcode == JBC_ldc_w);
     }
-    Offset offset = getDeclaringClass().getLiteralOffset(index);
-    int val_raw = Statics.getSlotContentsAsInt(offset);
-    float val = Float.intBitsToFloat(val_raw);
-    return val;
+    return getDeclaringClass().getFloatLiteral(index);
   }
 
   /**
@@ -781,12 +748,9 @@ public class BytecodeStream {
    */
   public final double getDoubleConstant(int index) {
     if (VM.VerifyAssertions) {
-      VM._assert(opcode == JBC_ldc2_w && getDeclaringClass().getLiteralDescription(index) == CP_DOUBLE);
+      VM._assert(opcode == JBC_ldc2_w);
     }
-    Offset offset = getDeclaringClass().getLiteralOffset(index);
-    long val_raw = Statics.getSlotContentsAsLong(offset);
-    double val = Double.longBitsToDouble(val_raw);
-    return val;
+    return getDeclaringClass().getDoubleLiteral(index);
   }
 
   /**
@@ -804,12 +768,9 @@ public class BytecodeStream {
    */
   public final String getStringConstant(int index) {
     if (VM.VerifyAssertions) {
-      VM._assert((opcode == JBC_ldc || opcode == JBC_ldc_w) &&
-                 getDeclaringClass().getLiteralDescription(index) == CP_STRING);
+      VM._assert(opcode == JBC_ldc || opcode == JBC_ldc_w);
     }
-    Offset offset = getDeclaringClass().getLiteralOffset(index);
-    String val = (String) Statics.getSlotContentsAsObject(offset);
-    return val;
+    return getDeclaringClass().getStringLiteral(index);
   }
 
   //// HELPER FUNCTIONS

@@ -35,27 +35,36 @@ public class JMXSupport {
     name.append(" bit Jikes RVM using ");
     if (VM.BuildForGnuClasspath) {
       name.append("GNU Classpath");
-    } else if (VM.BuildForHarmony) {
-      name.append("Apache Harmony");
     }
     if (VM.BuildForIA32) {
       name.append(" on IA32");
     } else if (VM.BuildForPowerPC) {
       name.append(" on PowerPC");
     }
-    if (VM.BuildForAdaptiveSystem) {
-      name.append(" (Adaptive Optimization System and Opt Compiler");
-    } else {
-      name.append(" (Baseline Compiler");
-    }
-    name.append(", garbage collection plan: ");
-    name.append(Selected.name);
+    name.append(" (");
+    name.append(getVmInfo());
     name.append(")");
     return name.toString();
   }
 
   public static long getStartTime() {
     return Time.bootTime();
+  }
+
+  public static String getVmInfo() {
+    return getCompilerInfo() + ", " + getGCInfo();
+  }
+
+  public static String getCompilerInfo() {
+    if (VM.BuildForAdaptiveSystem) {
+      return "Adaptive Optimization System and Opt Compiler";
+    } else {
+      return "Baseline Compiler";
+    }
+  }
+
+  public static String getGCInfo() {
+    return "garbage collection plan: " + Selected.name;
   }
 
 }

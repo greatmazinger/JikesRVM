@@ -35,6 +35,22 @@ public class Entrypoints {
   public static final RVMMethod java_lang_reflect_Method_invokeMethod =
       getMethod(java.lang.reflect.Method.class, "invoke",
           "(Ljava/lang/Object;[Ljava/lang/Object;)Ljava/lang/Object;");
+  public static final RVMMethod java_lang_reflect_Constructor_newInstance =
+      getMethod(java.lang.reflect.Constructor.class, "newInstance",
+          "([Ljava/lang/Object;)Ljava/lang/Object;");
+
+  // This is only necessary to work around OpenJDKs work around, see sun_reflect_Reflection
+  // in the libraryInterface for details.
+  public static final RVMMethod java_lang_reflect_Method_getCallerClass;
+  // Necessary to wipe out cached fields (TODO OPENJDK/ICEDTEA consider doing this in the BootImageWriter)
+  public static final RVMField usr_paths_Field;
+  public static final RVMField sys_paths_Field;
+  // Necessary to set application classloader for OpenJDK
+  public static final RVMField scl_Field;
+  public static final RVMField sclSet_Field;
+  // Necessary for getInheritedAccessControlContext
+  public static final RVMField inheritedAccessControlContext_Field;
+
   public static final RVMMethod getClassFromStackFrame =
     getMethod(org.jikesrvm.classloader.RVMClass.class, "getClassFromStackFrame", "(I)Lorg/jikesrvm/classloader/RVMClass;");
   public static final RVMMethod getClassLoaderFromStackFrame =
@@ -101,7 +117,7 @@ public class Entrypoints {
       getMethod(org.jikesrvm.runtime.RuntimeEntrypoints.class, "raiseIllegalAccessError", "()V");
 
 
-  public static final RVMField gcLockField = getField("Ljava/lang/VMCommonLibrarySupport$GCLock;", "gcLock", int.class);
+  public static final RVMField gcLockField = getField("Lorg/jikesrvm/classlibrary/JavaLangSupport$GCLock;", "gcLock", int.class);
 
   public static final NormalMethod invokeInterfaceMethod =
       getMethod(org.jikesrvm.classloader.InterfaceInvocation.class,
@@ -256,7 +272,6 @@ public class Entrypoints {
       getField(org.jikesrvm.mm.mmtk.Lock.class, "thread", org.jikesrvm.scheduler.RVMThread.class);
   */
   public static final RVMField lockStateField = getField(org.jikesrvm.mm.mmtk.Lock.class, "state", int.class);
-  public static final RVMField gcStatusField = getField(org.mmtk.plan.Plan.class, "gcStatus", int.class);
   public static final RVMField SQCFField = getField(org.mmtk.utility.deque.SharedDeque.class, "completionFlag", int.class);
   public static final RVMField SQNCField = getField(org.mmtk.utility.deque.SharedDeque.class, "numConsumers", int.class);
   public static final RVMField SQNCWField =
@@ -459,6 +474,23 @@ public class Entrypoints {
                                             "exitFromJNI",
                                             "(I)Ljava/lang/Object;");
     }
+
+    if (VM.BuildForOpenJDK) {
+      java_lang_reflect_Method_getCallerClass = getMethod(java.lang.reflect.Method.class, "getCallerClass",
+          "()Ljava/lang/Class;");
+      usr_paths_Field = getField(java.lang.ClassLoader.class, "usr_paths", String[].class);
+      sys_paths_Field = getField(java.lang.ClassLoader.class, "sys_paths", String[].class);
+      scl_Field = getField(java.lang.ClassLoader.class, "scl", ClassLoader.class);
+      sclSet_Field = getField(java.lang.ClassLoader.class, "sclSet", boolean.class);
+      inheritedAccessControlContext_Field = getField(java.lang.Thread.class, "inheritedAccessControlContext", java.security.AccessControlContext.class);
+    } else {
+      java_lang_reflect_Method_getCallerClass = null;
+      usr_paths_Field = null;
+      sys_paths_Field = null;
+      scl_Field = null;
+      sclSet_Field = null;
+      inheritedAccessControlContext_Field = null;
+    }
   }
 
   public static final RVMField the_boot_recordField =
@@ -525,7 +557,7 @@ public class Entrypoints {
           getMethod(org.jikesrvm.compilers.opt.runtimesupport.OptLinker.class, "newArrayArray", "(I[II)Ljava/lang/Object;");
       optNew2DArrayMethod =
           getMethod(org.jikesrvm.compilers.opt.runtimesupport.OptLinker.class, "new2DArray", "(IIII)Ljava/lang/Object;");
-      sysArrayCopy = getMethod("Ljava/lang/VMCommonLibrarySupport;", "arraycopy", "(Ljava/lang/Object;ILjava/lang/Object;II)V");
+      sysArrayCopy = getMethod("Lorg/jikesrvm/classlibrary/JavaLangSupport;", "arraycopy", "(Ljava/lang/Object;ILjava/lang/Object;II)V");
       sysArrayCopy.setRuntimeServiceMethod(false);
     } else {
       specializedMethodsField = null;
@@ -540,8 +572,16 @@ public class Entrypoints {
     }
   }
 
-  public static final RVMField classLoaderDefinedPackages =
-    getField(java.lang.ClassLoader.class, "definedPackages", java.util.HashMap.class);
+  public static final RVMField classLoaderDefinedPackages;
+
+  static {
+    // Initialize fields specific to the class library
+    if (VM.BuildForGnuClasspath) {
+      classLoaderDefinedPackages = getField(java.lang.ClassLoader.class, "definedPackages", java.util.HashMap.class);
+    } else {
+      classLoaderDefinedPackages = null;
+    }
+  }
 
   /**
    * Is this a special exception-raising method that must be invisible in stack traces?
@@ -564,29 +604,4 @@ public class Entrypoints {
         nm == raiseIllegalAccessError;
   }
 
-  public static final RVMField luni1;
-  public static final RVMField luni2;
-  public static final RVMField luni3;
-  public static final RVMField luni4;
-  public static final RVMField luni5;
-  public static final RVMField luni6;
-
-  // Initialize Harmony classlibrary specific fields
-  static {
-    if (VM.BuildForHarmony) {
-      luni1 = getField("Lorg/apache/harmony/luni/util/Msg;", "bundle", java.util.ResourceBundle.class);
-      luni2 = getField("Lorg/apache/harmony/archive/internal/nls/Messages;", "bundle", java.util.ResourceBundle.class);
-      luni3 = getField("Lorg/apache/harmony/luni/internal/nls/Messages;", "bundle", java.util.ResourceBundle.class);
-      luni4 = getField("Lorg/apache/harmony/nio/internal/nls/Messages;", "bundle", java.util.ResourceBundle.class);
-      luni5 = getField("Lorg/apache/harmony/niochar/internal/nls/Messages;", "bundle", java.util.ResourceBundle.class);
-      luni6 = getField(java.util.logging.LogManager.class, "manager", java.util.logging.LogManager.class);
-    } else {
-      luni1 = null;
-      luni2 = null;
-      luni3 = null;
-      luni4 = null;
-      luni5 = null;
-      luni6 = null;
-    }
-  }
 }

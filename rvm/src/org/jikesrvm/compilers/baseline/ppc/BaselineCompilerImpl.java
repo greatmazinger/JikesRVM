@@ -144,6 +144,7 @@ import org.jikesrvm.compilers.common.CompiledMethod;
 import org.jikesrvm.compilers.common.assembler.AbstractAssembler;
 import org.jikesrvm.compilers.common.assembler.ForwardReference;
 import org.jikesrvm.compilers.common.assembler.ppc.Assembler;
+import org.jikesrvm.compilers.common.assembler.ppc.Lister;
 import org.jikesrvm.jni.ppc.JNICompiler;
 import org.jikesrvm.mm.mminterface.MemoryManager;
 import org.jikesrvm.objectmodel.ObjectModel;
@@ -167,6 +168,7 @@ import org.vmmagic.unboxed.Offset;
 public final class BaselineCompilerImpl extends BaselineCompiler {
 
   final Assembler asm;
+  final Lister lister;
 
   // stackframe pseudo-constants //
   private int frameSize;
@@ -215,12 +217,18 @@ public final class BaselineCompilerImpl extends BaselineCompiler {
     startLocalOffset = getInternalStartLocalOffset(method);
     emptyStackOffset = getEmptyStackOffset(method);
     fullStackOffset = emptyStackOffset - (method.getOperandWords() << LOG_BYTES_IN_STACKSLOT);
-    asm = new Assembler(bcodes.length(),shouldPrint, this);
+    asm = new Assembler(bcodes.length(),shouldPrint, this, bytecodeMap);
+    lister = asm.getLister();
   }
 
   @Override
   protected AbstractAssembler getAssembler() {
     return asm;
+  }
+
+  @Override
+  protected Lister getLister() {
+    return lister;
   }
 
   @Override
@@ -3398,6 +3406,11 @@ public final class BaselineCompilerImpl extends BaselineCompiler {
     }
   }
 
+  @Override
+  protected void ending_method() {
+    asm.noteEndOfBytecodes();
+  }
+
   /**
    * Emit the code to load the counter array into the given register.
    * May call a read barrier so will kill all temporaries.
@@ -4438,7 +4451,7 @@ public final class BaselineCompilerImpl extends BaselineCompiler {
       fr.resolve(asm);
       pushInt(T0);  // push success of conditional store
     } else if (methodName == MagicNames.attemptLong) {
-      popAddr(T2);  // pop newValue
+      popLong(T3, T2); // pop newValue
       discardSlots(2); // ignore oldValue which is a long and thus takes 2 slots
       popOffset(T1);  // pop offset
       popAddr(T0);  // pop object
@@ -4550,9 +4563,7 @@ public final class BaselineCompilerImpl extends BaselineCompiler {
       popAddr(T0);                   // get object pointer
       asm.emitLIntOffset(T0, T0, ObjectModel.getArrayLengthOffset()); // get array length field
       pushInt(T0);                   // *sp := length
-    } else if (methodName == MagicNames.sync) {
-      asm.emitSYNC();
-    } else if (methodName == MagicNames.isync) {
+    } else if (methodName == MagicNames.synchronizeInstructionCache) {
       asm.emitISYNC();
     } else if (methodName == MagicNames.pause) {
       // NO-OP
@@ -4598,6 +4609,10 @@ public final class BaselineCompilerImpl extends BaselineCompiler {
     } else if (methodName == MagicNames.getInlineDepth ||
                methodName == MagicNames.isConstantParameter) {
       emit_iconst(0);
+    } else if (methodName == MagicNames.getCompilerLevel) {
+      emit_iconst(-1);
+    } else if (methodName == MagicNames.getFrameSize) {
+      emit_iconst(frameSize);
     } else if (methodName == MagicNames.wordToInt ||
                methodName == MagicNames.wordToAddress ||
                methodName == MagicNames.wordToOffset ||

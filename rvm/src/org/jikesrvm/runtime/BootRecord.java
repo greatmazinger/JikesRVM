@@ -231,6 +231,7 @@ public class BootRecord {
   public Address sysConsoleWriteIntegerIP;
   public Address sysConsoleWriteLongIP;
   public Address sysConsoleWriteDoubleIP;
+  public Address sysConsoleFlushErrorAndTraceIP;
 
   // startup/shutdown
   public Address sysExitIP;
@@ -395,6 +396,11 @@ public class BootRecord {
 
   public Address gcspyFormatSizeIP;
   public Address gcspySprintfIP;
+
+  public Address sysStackAlignmentTestIP;
+  public Address sysArgumentPassingTestIP;
+  public Address sysArgumentPassingSeveralLongsAndSeveralDoublesIP;
+  public Address sysArgumentPassingSeveralFloatsAndSeveralIntsIP;
 
   // perf event support
   public Address sysPerfEventInitIP;

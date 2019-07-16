@@ -20,6 +20,7 @@ import org.jikesrvm.compilers.common.CompiledMethods;
 import org.jikesrvm.runtime.Magic;
 import org.jikesrvm.scheduler.Synchronization;
 import org.jikesrvm.scheduler.RVMThread;
+import org.vmmagic.pragma.Entrypoint;
 import org.vmmagic.pragma.Uninterruptible;
 import org.vmmagic.unboxed.Address;
 import org.vmmagic.unboxed.Offset;
@@ -60,11 +61,13 @@ public class EdgeListener extends ContextListener {
   /**
    * Number of samples taken so far
    */
+  @Entrypoint
   protected int samplesTaken;
 
   /**
    * Number of times update is called
    */
+  @Entrypoint
   protected int updateCalled;
 
   /**
@@ -197,7 +200,7 @@ public class EdgeListener extends ContextListener {
     if (idx < buffer.length) {
       buffer[idx + 1] = callerCMID;
       buffer[idx + 2] = callSite.toInt();
-      Magic.sync();
+      Magic.fence();
       buffer[idx + 0] = calleeCMID;
 
       // If we are the last sample, we need to activate the organizer.

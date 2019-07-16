@@ -172,6 +172,8 @@ public final class TypeReference {
   public static final TypeReference BaselineSaveLSRegisters = findOrCreate(org.vmmagic.pragma.BaselineSaveLSRegisters.class);
   public static final TypeReference ReferenceFieldsVary = findOrCreate(org.vmmagic.pragma.ReferenceFieldsVary.class);
 
+  public static final TypeReference ReplaceClass = findOrCreate(org.vmmagic.pragma.ReplaceClass.class);
+  public static final TypeReference ReplaceMember = findOrCreate(org.vmmagic.pragma.ReplaceMember.class);
 
   public static final TypeReference ReferenceMaps =
       findOrCreate(org.jikesrvm.compilers.baseline.ReferenceMaps.class);
@@ -258,7 +260,7 @@ public final class TypeReference {
    * Shorthand for doing a find or create for a type reference that should
    * be created using the bootstrap classloader.
    * @return the canonical type reference
-   * @param tn type name
+   * @param tn type descriptor
    */
   public static TypeReference findOrCreate(String tn) {
     return findOrCreate(BootstrapClassLoader.getBootstrapClassLoader(), Atom.findOrCreateAsciiAtom(tn));
@@ -280,30 +282,14 @@ public final class TypeReference {
         Atom classAtom = Atom.findOrCreateAsciiAtom(className.replace('.', '/'));
         return findOrCreate(BootstrapClassLoader.getBootstrapClassLoader(), classAtom);
       } else {
-        // a class
-        Atom classAtom;
-        if (className.equals("int")) {
-          return TypeReference.Int;
-        } else if (className.equals("boolean")) {
-          return TypeReference.Boolean;
-        } else if (className.equals("byte")) {
-          return TypeReference.Byte;
-        } else if (className.equals("char")) {
-          return TypeReference.Char;
-        } else if (className.equals("double")) {
-          return TypeReference.Double;
-        } else if (className.equals("float")) {
-          return TypeReference.Float;
-        } else if (className.equals("long")) {
-          return TypeReference.Long;
-        } else if (className.equals("short")) {
-          return TypeReference.Short;
-        } else if (className.equals("void")) {
-          return TypeReference.Void;
+        Atom classDescriptor;
+        TypeReference primitiveTypeRef = mapPrimitiveClassNameToTypeReference(className);
+        if (primitiveTypeRef != null) {
+          classDescriptor = primitiveTypeRef.name;
         } else {
-          classAtom = Atom.findOrCreateAsciiAtom(className.replace('.', '/'));
+          Atom classAtom = Atom.findOrCreateAsciiAtom(className.replace('.', '/'));
+          classDescriptor = classAtom.descriptorFromClassName();
         }
-        Atom classDescriptor = classAtom.descriptorFromClassName();
         return findOrCreate(BootstrapClassLoader.getBootstrapClassLoader(), classDescriptor);
       }
     }
@@ -875,5 +861,32 @@ public final class TypeReference {
   @Override
   public String toString() {
     return "< " + classloader + ", " + name + " >";
+  }
+
+  public static TypeReference mapPrimitiveClassNameToTypeReference(
+      String className) {
+    if (className == null) {
+      return null;
+    }
+    if (className.equals("int")) {
+      return TypeReference.Int;
+    } else if (className.equals("boolean")) {
+      return TypeReference.Boolean;
+    } else if (className.equals("byte")) {
+      return TypeReference.Byte;
+    } else if (className.equals("char")) {
+      return TypeReference.Char;
+    } else if (className.equals("double")) {
+      return TypeReference.Double;
+    } else if (className.equals("float")) {
+      return TypeReference.Float;
+    } else if (className.equals("long")) {
+      return TypeReference.Long;
+    } else if (className.equals("short")) {
+      return TypeReference.Short;
+    } else if (className.equals("void")) {
+      return TypeReference.Void;
+    }
+    return null;
   }
 }

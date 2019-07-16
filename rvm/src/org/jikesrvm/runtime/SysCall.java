@@ -69,6 +69,14 @@ public abstract class SysCall {
   @SysCallTemplate
   public abstract void sysConsoleWriteDouble(double value, int postDecimalDigits);
 
+  /**
+   * Flushes the underlying output streams from the bootloader
+   * by calling the appropriate C functions (e.g. {@code fflush}
+   * and {@code fsync}).
+   */
+  @SysCallTemplate
+  public abstract void sysConsoleFlushErrorAndTrace();
+
   // startup/shutdown
   @SysCallTemplate
   public abstract void sysExit(int value);
@@ -229,9 +237,9 @@ public abstract class SysCall {
   @SysCallTemplate
   public abstract void sysMonitorDestroy(Word monitor);
   @SysCallTemplate
-  public abstract void sysMonitorEnter(Word monitor);
+  public abstract int sysMonitorEnter(Word monitor);
   @SysCallTemplate
-  public abstract void sysMonitorExit(Word monitor);
+  public abstract int sysMonitorExit(Word monitor);
   @SysCallTemplate
   public abstract void sysMonitorTimedWaitAbsolute(Word monitor, long whenWakeupNanos);
   @SysCallTemplate
@@ -470,5 +478,27 @@ public abstract class SysCall {
 
   @SysCallTemplate
   public abstract int gcspySprintf(Address str, Address format, Address value);
+
+  @SysCallTemplate
+  public abstract void sysStackAlignmentTest();
+
+  @SysCallTemplate
+  public abstract void sysArgumentPassingTest(long firstLong, long secondLong, long thirdLong, long fourthLong,
+      long fifthLong, long sixthLong, long seventhLong, long eightLong, double firstDouble, double secondDouble,
+      double thirdDouble, double fourthDouble, double fifthDouble, double sixthDouble, double seventhDouble,
+      double eightDouble, int firstInt, long ninthLong, byte[] firstByteArray, double ninthDouble, Address firstAddress);
+
+  @SysCallTemplate
+  public abstract void sysArgumentPassingSeveralLongsAndSeveralDoubles(long firstLong, long secondLong, long thirdLong, long fourthLong,
+      long fifthLong, long sixthLong, long seventhLong, long eightLong, double firstDouble, double secondDouble,
+      double thirdDouble, double fourthDouble, double fifthDouble, double sixthDouble, double seventhDouble,
+      double eightDouble);
+
+  @SysCallTemplate
+  public abstract void sysArgumentPassingSeveralFloatsAndSeveralInts(float firstFloat, float secondFloat, float thirdFloat, float fourthFloat,
+      float fifthFloat, float sixthFloat, float seventhFloat, float eightFloat, int firstInt, int secondInt,
+      int thirdInt, int fourthInt, int fifthInt, int sixthInt, int seventhInt,
+      int eightInt);
+
 }
 

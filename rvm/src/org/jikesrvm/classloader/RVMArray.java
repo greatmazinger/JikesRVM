@@ -105,7 +105,7 @@ public final class RVMArray extends RVMType {
   /**
    * The dimension of the innermost element of this array type.
    */
-  @Entrypoint
+  @Entrypoint(fieldMayBeFinal = true)
   @SuppressWarnings({"unused"})
   private final int innermostElementTypeDimension;
 
@@ -263,6 +263,7 @@ public final class RVMArray extends RVMType {
   /**
    * Non-static fields of this array type.
    */
+  @Uninterruptible
   @Override
   @Pure
   public RVMField[] getInstanceFields() {

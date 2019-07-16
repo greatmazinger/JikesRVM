@@ -17,7 +17,6 @@ import static org.jikesrvm.compilers.opt.OptimizingCompilerException.opt_assert;
 import static org.jikesrvm.compilers.opt.ir.Operators.DOUBLE_CMPL;
 import static org.jikesrvm.compilers.opt.ir.Operators.FLOAT_CMPL;
 import static org.jikesrvm.compilers.opt.ir.Operators.GUARD_MOVE;
-import static org.jikesrvm.compilers.opt.ir.Operators.IR_PROLOGUE;
 import static org.jikesrvm.compilers.opt.ir.Operators.LONG_SHL;
 import static org.jikesrvm.compilers.opt.ir.Operators.LONG_SHR;
 import static org.jikesrvm.compilers.opt.ir.Operators.LONG_USHR;
@@ -3318,7 +3317,7 @@ public abstract class BURS_Helpers extends BURS_MemOp_Helpers {
         }
       }
       if (numLongs != 0) {
-        Instruction s2 = Prologue.create(IR_PROLOGUE, numFormals + numLongs);
+        Instruction s2 = createNewPrologueInst(s, numFormals + numLongs);
         for (int sidx = 0, s2idx = 0; sidx < numFormals; sidx++) {
           RegisterOperand sForm = Prologue.getClearFormal(s, sidx);
           if (sForm.getType().isLongType()) {
@@ -3549,7 +3548,7 @@ public abstract class BURS_Helpers extends BURS_MemOp_Helpers {
   }
 
   /**
-   * This routine expands an ATTEMPT instruction into an atomic
+   * This routine expands an ATTEMPT_INT instruction into an atomic
    * compare exchange. The atomic compare and exchange will place at
    * mo the value of newValue if the value of mo is oldValue. The
    * result register is set to 0/1 depending on whether the valye was
@@ -3561,34 +3560,19 @@ public abstract class BURS_Helpers extends BURS_MemOp_Helpers {
    * @param oldValue the old value at the address mo
    * @param newValue the new value at the address mo
    */
-  protected final void ATTEMPT(RegisterOperand result, MemoryOperand mo, Operand oldValue,
+  protected final void ATTEMPT_INT(RegisterOperand result, MemoryOperand mo, Operand oldValue,
                                Operand newValue) {
-    if (VM.BuildFor32Addr) {
-      RegisterOperand temp = regpool.makeTempInt();
-      RegisterOperand temp2 = regpool.makeTemp(result);
-      EMIT(MIR_Move.create(IA32_MOV, temp, newValue));
-      EMIT(MIR_Move.create(IA32_MOV, new RegisterOperand(getEAX(), TypeReference.Int), oldValue));
-      EMIT(MIR_CompareExchange.create(IA32_LOCK_CMPXCHG,
-                                      new RegisterOperand(getEAX(), TypeReference.Int),
-                                      mo,
-                                      temp.copyRO()));
-      EMIT(MIR_Set.create(IA32_SET__B, temp2, IA32ConditionOperand.EQ()));
-      // need to zero-extend the result of the set
-      EMIT(MIR_Unary.create(IA32_MOVZX__B, result, temp2.copy()));
-    } else {
-      RegisterOperand temp = regpool.makeTempLong();
-      RegisterOperand temp2 = regpool.makeTemp(result);
-      EMIT(MIR_Move.create(IA32_MOV, temp, newValue));
-      EMIT(MIR_Move.create(IA32_MOV, new RegisterOperand(getEAX(), TypeReference.Long), oldValue));
-      EMIT(MIR_CompareExchange.create(IA32_LOCK_CMPXCHG,
-                                      new RegisterOperand(getEAX(), TypeReference.Long),
-                                      mo,
-                                      temp.copyRO()));
-      EMIT(MIR_Set.create(IA32_SET__B, temp2, IA32ConditionOperand.EQ()));
-      // need to zero-extend the result of the set
-      EMIT(MIR_Unary.create(IA32_MOVZX__B, result, temp2.copy()));
-
-    }
+    RegisterOperand temp = regpool.makeTempInt();
+    RegisterOperand temp2 = regpool.makeTemp(result);
+    EMIT(MIR_Move.create(IA32_MOV, temp, newValue));
+    EMIT(MIR_Move.create(IA32_MOV, new RegisterOperand(getEAX(), TypeReference.Int), oldValue));
+    EMIT(MIR_CompareExchange.create(IA32_LOCK_CMPXCHG,
+                                    new RegisterOperand(getEAX(), TypeReference.Int),
+                                    mo,
+                                    temp.copyRO()));
+    EMIT(MIR_Set.create(IA32_SET__B, temp2, IA32ConditionOperand.EQ()));
+    // need to zero-extend the result of the set
+    EMIT(MIR_Unary.create(IA32_MOVZX__B, result, temp2.copy()));
   }
 
   /**

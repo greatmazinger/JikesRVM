@@ -136,6 +136,7 @@ EXTERNAL void sysConsoleWriteChar(unsigned value);
 EXTERNAL void sysConsoleWriteInteger(int value, int hexToo);
 EXTERNAL void sysConsoleWriteLong(long long value, int hexToo);
 EXTERNAL void sysConsoleWriteDouble(double value,  int postDecimalDigits);
+EXTERNAL void sysConsoleFlushErrorAndTrace();
 // sysGCSpy
 #ifdef RVM_WITH_GCSPY
 EXTERNAL gcspy_gc_stream_t * gcspyDriverAddStream (gcspy_gc_driver_t *driver, int id);
@@ -258,6 +259,8 @@ EXTERNAL void sysPerfEventDisable();
 EXTERNAL void sysPerfEventRead(int id, long long *values);
 // sysSignal
 EXTERNAL int inRVMAddressSpace(Address addr);
+EXTERNAL void dumpProcessAddressSpace();
+EXTERNAL void unblockSIGQUIT();
 EXTERNAL void hardwareTrapHandler(int signo, siginfo_t *si, void *context);
 EXTERNAL void softwareSignalHandler(int signo, siginfo_t UNUSED *si, void *context);
 EXTERNAL void* sysStartMainThreadSignals();
@@ -277,12 +280,24 @@ EXTERNAL void setupDeliverHardwareException(void *context, Address vmRegisters,
              Address threadPtr, Address jtocPtr,
              Address framePtr, int signo);
 EXTERNAL void dumpContext(void *context);
+// sysTestcases
+EXTERNAL void sysStackAlignmentTest();
+EXTERNAL void sysArgumentPassingTest(long long firstLong, long long secondLong, long long thirdLong, long long fourthLong,
+    long long fifthLong, long long sixthLong, long long seventhLong, long long eightLong, double firstDouble, double secondDouble,
+  double thirdDouble, double fourthDouble, double fifthDouble, double sixthDouble, double seventhDouble,
+  double eightDouble, int firstInt, long long ninthLong, const char * firstByteArray, double ninthDouble, Address firstAddress);
+EXTERNAL void sysArgumentPassingSeveralLongsAndSeveralDoubles(long long firstLong, long long secondLong, long long thirdLong, long long fourthLong,
+    long long fifthLong, long long sixthLong, long long seventhLong, long long eightLong, double firstDouble, double secondDouble,
+  double thirdDouble, double fourthDouble, double fifthDouble, double sixthDouble, double seventhDouble, double eightDouble);
+EXTERNAL void sysArgumentPassingSeveralFloatsAndSeveralInts(float firstFloat, float secondFloat, float thirdFloat, float fourthFloat,
+    float fifthFloat, float sixthFloat, float seventhFloat, float eightFloat, int firstInt, int secondInt,
+  int thirdInt, int fourthInt, int fifthInt, int sixthInt, int seventhInt, int eightInt);
 // sysThread
 EXTERNAL void sysInitialize();
 EXTERNAL Word sysMonitorCreate();
 EXTERNAL void sysMonitorDestroy(Word);
-EXTERNAL void sysMonitorEnter(Word);
-EXTERNAL void sysMonitorExit(Word);
+EXTERNAL int sysMonitorEnter(Word);
+EXTERNAL int sysMonitorExit(Word);
 EXTERNAL void sysMonitorTimedWait(Word, long long);
 EXTERNAL void sysMonitorWait(Word);
 EXTERNAL void sysMonitorBroadcast(Word);

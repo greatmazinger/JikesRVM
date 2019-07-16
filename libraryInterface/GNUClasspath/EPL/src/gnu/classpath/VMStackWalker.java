@@ -72,18 +72,14 @@ public final class VMStackWalker {
     b.up(); // skip VMStackWalker.getClassContext (this call)
 
     boolean reflected;  // Were we invoked by reflection?
-    if (b.getMethod() == Entrypoints.java_lang_reflect_Method_invokeMethod) {
+    if (b.currentMethodIs_Java_Lang_Reflect_Method_InvokeMethod()) {
       reflected = true;
       b.up();         // Skip Method.invoke, (if we were called by reflection)
     } else {
       reflected = false;
     }
 
-    /* Count # of frames. */
-    while (b.hasMoreFrames()) {
-      frames++;
-      b.up();
-    }
+    frames = b.countFrames();
 
     VM.enableGC();
 
