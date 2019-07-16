@@ -27,6 +27,11 @@ public abstract class Configuration {
   public static final boolean BuildForSSE2 = BuildForIA32 && (@_RVM_FOR_SSE2_@ || VM.BuildFor64Addr);
   public static final boolean BuildForSSE2Full = BuildForSSE2 && (@_RVM_FOR_SSE2_FULL_@ || VM.BuildFor64Addr);
   public static final boolean BuildForHwFsqrt = @_RVM_FOR_HW_FSQRT_@ && (@_RVM_FOR_POWERPC_@ || VM.BuildForSSE2);
+  /**
+   * Does using Magic.attempt* mean that the effects of a {@code StoreLoad} barrier will happen? This is the case on
+   * IA32 because attempts use {@code cmpxchg*} which has the effect of a full memory fence.
+   */
+  public static final boolean MagicAttemptImpliesStoreLoadBarrier = !BuildForPowerPC;
 
   public static final boolean BuildFor32Addr = @_RVM_FOR_32_ADDR_@;
   public static final boolean BuildFor64Addr = !BuildFor32Addr;
@@ -36,7 +41,7 @@ public abstract class Configuration {
   public static final boolean BuildForOsx = @_RVM_FOR_OSX_@;
 
   public static final boolean BuildForGnuClasspath = @_RVM_WITH_GNU_CLASSPATH_@;
-  public static final boolean BuildForHarmony = @_RVM_WITH_HARMONY_@;
+  public static final boolean BuildForOpenJDK = @_RVM_WITH_OPENJDK_@;
 
   public static final boolean LittleEndian = @_RVM_FOR_LITTLE_ENDIAN_@;
 

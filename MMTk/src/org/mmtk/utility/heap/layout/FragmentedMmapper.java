@@ -115,16 +115,16 @@ public final class FragmentedMmapper extends Mmapper {
   static {
     if (VERBOSE_BUILD) {
       Log.writeln("== FragmentedMmap ==");
-      Log.write("LOG_MAPPABLE_BYTES       = ", LOG_MAPPABLE_BYTES);
-      Log.write("LOG_MMAP_CHUNK_BYTES = ", VMLayoutConstants.LOG_MMAP_CHUNK_BYTES);
-      Log.write("MMAP_CHUNK_BYTES     = ", MMAP_CHUNK_BYTES);
-      Log.write("LOG_MMAP_SLAB_BYTES  = ", LOG_MMAP_SLAB_BYTES);
-      Log.write("MMAP_SLAB_EXTENT     = ", MMAP_SLAB_EXTENT);
-      Log.write("LOG_MMAP_CHUNKS_PER_SLAB = ", LOG_MMAP_CHUNKS_PER_SLAB);
-      Log.write("LOG_MAX_SLABS = ", LOG_MAX_SLABS);
-      Log.write("MAX_SLABS     = ", MAX_SLABS);
-      Log.write("SLAB_TABLE_SIZE = ", SLAB_TABLE_SIZE);
-      Log.write("MMAP_NUM_CHUNKS = ", MMAP_NUM_CHUNKS);
+      Log.writeln("LOG_MAPPABLE_BYTES       = ", LOG_MAPPABLE_BYTES);
+      Log.writeln("LOG_MMAP_CHUNK_BYTES = ", VMLayoutConstants.LOG_MMAP_CHUNK_BYTES);
+      Log.writeln("MMAP_CHUNK_BYTES     = ", MMAP_CHUNK_BYTES);
+      Log.writeln("LOG_MMAP_SLAB_BYTES  = ", LOG_MMAP_SLAB_BYTES);
+      Log.writeln("MMAP_SLAB_EXTENT     = ", MMAP_SLAB_EXTENT);
+      Log.writeln("LOG_MMAP_CHUNKS_PER_SLAB = ", LOG_MMAP_CHUNKS_PER_SLAB);
+      Log.writeln("LOG_MAX_SLABS = ", LOG_MAX_SLABS);
+      Log.writeln("MAX_SLABS     = ", MAX_SLABS);
+      Log.writeln("SLAB_TABLE_SIZE = ", SLAB_TABLE_SIZE);
+      Log.writeln("MMAP_NUM_CHUNKS = ", MMAP_NUM_CHUNKS);
 
       Log.write("Total memory used (kB) = ", (MMAP_NUM_CHUNKS * MAX_SLABS) >> 10);
       Log.writeln("==");
@@ -220,9 +220,12 @@ public final class FragmentedMmapper extends Mmapper {
    * @return The address of the chunk map for the slab.
    */
   byte[] slabTable(Address addr, boolean allocate) {
+    if (VM.VERIFY_ASSERTIONS) {
+      VM.assertions._assert(!addr.EQ(SENTINEL));
+    }
     Address base = addr.toWord().and(MMAP_SLAB_MASK.not()).toAddress();
     final int hash = hash(base);
-    int index = hash;
+    int index = hash;  // Use 'index' to iterate over the hash table so that we remember where we started
     if (STATS) hashAttemptCounter.inc();
     while (true) {
       /* Check for a hash-table hit.  Should be the frequent case. */
@@ -231,7 +234,6 @@ public final class FragmentedMmapper extends Mmapper {
       }
       if (STATS) hashMissCounter.inc();
 
-      /* Check for a free slot */
       lock.acquire();
 
       /* Check whether another thread has allocated a slab while we were acquiring the lock */
@@ -239,13 +241,15 @@ public final class FragmentedMmapper extends Mmapper {
         lock.release();
         return slabTableFor(addr, index);
       }
+
+      /* Check for a free slot */
       if (slabMap.get(index).EQ(SENTINEL)) {
         if (!allocate) {
           lock.release();
           return null;
         }
-        slabMap.set(index, base);
         commitFreeSlab(index);
+        slabMap.set(index, base);
         lock.release();
         return slabTableFor(addr, index);
       }
@@ -259,15 +263,16 @@ public final class FragmentedMmapper extends Mmapper {
   }
 
   public byte[] slabTableFor(Address addr, int index) {
+    byte[] slabTableElement = slabTable[index];
     if (VM.VERIFY_ASSERTIONS) {
-      if (slabTable[index] == null) {
-        Log.write("Addr = ", addr);
-        Log.write(" stabTable[", index);
-        Log.write("] == null");
+      if (slabTableElement == null) {
+        Log.write("Addr = "); Log.write(addr);
+        Log.write(" slabTable["); Log.write(index);
+        Log.writeln("] == null");
       }
-      VM.assertions._assert(slabTable[index] != null);
+      VM.assertions._assert(slabTableElement != null);
     }
-    return slabTable[index];
+    return slabTableElement;
   }
 
   /**

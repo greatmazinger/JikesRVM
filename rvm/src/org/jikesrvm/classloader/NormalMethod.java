@@ -125,7 +125,9 @@ public final class NormalMethod extends RVMMethod {
   private final int[] lineNumberMap;
 
   /**
-   * the local variable table
+   * The local variable tables for all methods.
+   * <p>
+   * Kept in a separate data structure to save space because not every method has a local variable table.
    */
   private static final HashMapRVM<NormalMethod, LocalVariableTable> localVariableTables = new HashMapRVM<NormalMethod, LocalVariableTable>();
 
@@ -158,20 +160,20 @@ public final class NormalMethod extends RVMMethod {
    * @param lvt the local variable table for this method
    * @param constantPool the constantPool for this method
    * @param sig generic type of this method.
-   * @param annotations array of runtime visible annotations
-   * @param parameterAnnotations array of runtime visible paramter annotations
-   * @param ad annotation default value for that appears in annotation classes
+   * @param methodAnnotations all method annotations
    */
   NormalMethod(TypeReference dc, MemberReference mr, short mo, TypeReference[] et, short lw, short ow,
                   byte[] bc, ExceptionHandlerMap eMap, int[] lm, LocalVariableTable lvt, int[] constantPool, Atom sig,
-                  RVMAnnotation[] annotations, RVMAnnotation[][] parameterAnnotations, Object ad) {
-    super(dc, mr, mo, et, sig, annotations, parameterAnnotations, ad);
+                  MethodAnnotations methodAnnotations) {
+    super(dc, mr, mo, et, sig, methodAnnotations);
     localWords = lw;
     operandWords = ow;
     bytecodes = bc;
     exceptionHandlerMap = eMap;
     lineNumberMap = lm;
-    localVariableTables.put(this, lvt);
+    if (lvt != null) {
+      localVariableTables.put(this, lvt);
+    }
     computeSummary(constantPool);
   }
 
@@ -220,8 +222,7 @@ public final class NormalMethod extends RVMMethod {
     if (VM.VerifyAssertions) VM._assert(bcIndex + 2 < bytecodes.length);
     int bytecode = bytecodes[bcIndex] & 0xFF;
     if (VM.VerifyAssertions) {
-      VM._assert((JBC_invokevirtual <= bytecode) &&
-                 (bytecode <= JBC_invokeinterface));
+      VM._assert(JBC_isJava6Call(bytecode));
     }
     int constantPoolIndex = ((bytecodes[bcIndex + 1] & 0xFF) << BITS_IN_BYTE) | (bytecodes[bcIndex + 2] & 0xFF);
     dynamicLink.set(getDeclaringClass().getMethodRef(constantPoolIndex), bytecode);

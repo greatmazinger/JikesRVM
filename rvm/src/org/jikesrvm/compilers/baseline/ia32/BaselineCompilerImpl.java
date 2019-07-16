@@ -12,8 +12,7 @@
  */
 package org.jikesrvm.compilers.baseline.ia32;
 
-import static org.jikesrvm.classloader.ClassLoaderConstants.CP_CLASS;
-import static org.jikesrvm.classloader.ClassLoaderConstants.CP_STRING;
+import static org.jikesrvm.classloader.ConstantPool.*;
 import static org.jikesrvm.compilers.common.assembler.ia32.AssemblerConstants.*;
 import static org.jikesrvm.ia32.ArchConstants.SSE2_BASE;
 import static org.jikesrvm.ia32.ArchConstants.SSE2_FULL;
@@ -96,8 +95,10 @@ import org.jikesrvm.compilers.baseline.EdgeCounts;
 import org.jikesrvm.compilers.baseline.TemplateCompilerFramework;
 import org.jikesrvm.compilers.common.CompiledMethod;
 import org.jikesrvm.compilers.common.assembler.AbstractAssembler;
+import org.jikesrvm.compilers.common.assembler.AbstractLister;
 import org.jikesrvm.compilers.common.assembler.ForwardReference;
 import org.jikesrvm.compilers.common.assembler.ia32.Assembler;
+import org.jikesrvm.compilers.common.assembler.ia32.Lister;
 import org.jikesrvm.ia32.RegisterConstants.GPR;
 import org.jikesrvm.ia32.RegisterConstants.XMM;
 import org.jikesrvm.jni.ia32.JNICompiler;
@@ -120,6 +121,7 @@ import org.vmmagic.unboxed.Offset;
 public final class BaselineCompilerImpl extends BaselineCompiler {
 
   private final Assembler asm;
+  private final Lister lister;
 
   static {
     // Force resolution of BaselineMagic before using in genMagic
@@ -147,11 +149,17 @@ public final class BaselineCompilerImpl extends BaselineCompiler {
     stackHeights = new int[bcodes.length()];
     parameterWords = method.getParameterWords() + (method.isStatic() ? 0 : 1); // add 1 for this pointer
     asm = new Assembler(bcodes.length(),shouldPrint, this);
+    lister = asm.getLister();
   }
 
   @Override
   protected AbstractAssembler getAssembler() {
     return asm;
+  }
+
+  @Override
+  protected AbstractLister getLister() {
+    return lister;
   }
 
   /**
@@ -190,10 +198,6 @@ public final class BaselineCompilerImpl extends BaselineCompiler {
   }
 
   /**
-   * This is misnamed.  It should be getFirstParameterOffset.
-   * It will not work as a base to access true locals.
-   * TODO!! make sure it is not being used incorrectly
-   *
    * @param method the method in question
    *
    * @return offset of first parameter
@@ -522,8 +526,14 @@ public final class BaselineCompilerImpl extends BaselineCompiler {
       asm.emitAND_Reg_Reg(T0, T0); // clear MSBs
     }
     genBoundsCheck(asm, T0, S0); // T0 is index, S0 is address of array
-    // push [S0+T0<<2]
-    asm.emitPUSH_RegIdx(S0, T0, WORD, NO_SLOT);
+    if (VM.BuildFor32Addr) {
+      // push [S0+T0<<2]
+      asm.emitPUSH_RegIdx(S0, T0, WORD, NO_SLOT);
+    } else {
+      // T1 = [S0+T0<<2] NB: must use 32-bit memory access!
+      asm.emitMOV_Reg_RegIdx(T1, S0, T0, WORD, NO_SLOT);
+      asm.emitPUSH_Reg(T1); // push int on stack
+    }
   }
 
   @Override
@@ -2322,8 +2332,16 @@ public final class BaselineCompilerImpl extends BaselineCompiler {
     } else { // field is two words (double or long)
       if (VM.VerifyAssertions) VM._assert(fieldRef.getSize() == BYTES_IN_LONG);
       if (VM.BuildFor32Addr) {
-        asm.emitPUSH_RegDisp(T0, Magic.getTocPointer().toWord().toOffset().plus(WORDSIZE)); // get high part
-        asm.emitPUSH_RegDisp(T0, Magic.getTocPointer().toWord().toOffset());                // get low part
+        // JMM: field could be volatile so we need to guarantee atomic access
+        if (SSE2_BASE) {
+          asm.emitMOVQ_Reg_RegDisp(XMM0, T0, Magic.getTocPointer().toWord().toOffset());
+          adjustStack(-2 * WORDSIZE, false);
+          asm.emitMOVQ_RegInd_Reg(SP, XMM0);
+        } else {
+          asm.emitFLD_Reg_RegDisp_Quad(FP0, T0, Magic.getTocPointer().toWord().toOffset());
+          adjustStack(-2 * WORDSIZE, false);
+          asm.emitFSTP_RegInd_Reg_Quad(SP, FP0);
+        }
       } else {
         if (fieldRef.getNumberOfStackSlots() != 1) {
           adjustStack(-WORDSIZE, true);
@@ -2351,8 +2369,21 @@ public final class BaselineCompilerImpl extends BaselineCompiler {
     } else { // field is two words (double or long)
       if (VM.VerifyAssertions) VM._assert(fieldRef.getSize() == BYTES_IN_LONG);
       if (VM.BuildFor32Addr) {
-        asm.emitPUSH_Abs(Magic.getTocPointer().plus(fieldOffset).plus(WORDSIZE)); // get high part
-        asm.emitPUSH_Abs(Magic.getTocPointer().plus(fieldOffset));                // get low part
+        // JMM: we need to guarantee atomic access for volatile fields
+        if (field.isVolatile()) {
+          if (SSE2_BASE) {
+            asm.emitMOVQ_Reg_Abs(XMM0, Magic.getTocPointer().plus(fieldOffset));
+            adjustStack(-2 * WORDSIZE, true);
+            asm.emitMOVQ_RegInd_Reg(SP, XMM0);
+          } else {
+            asm.emitFLD_Reg_Abs_Quad(FP0, Magic.getTocPointer().plus(fieldOffset));
+            adjustStack(-2 * WORDSIZE, true);
+            asm.emitFSTP_RegInd_Reg_Quad(SP, FP0);
+          }
+        } else {
+          asm.emitPUSH_Abs(Magic.getTocPointer().plus(fieldOffset).plus(WORDSIZE)); // get high part
+          asm.emitPUSH_Abs(Magic.getTocPointer().plus(fieldOffset));                // get low part
+        }
       } else {
         if (fieldRef.getNumberOfStackSlots() != 1) {
           adjustStack(-WORDSIZE, true);
@@ -2378,8 +2409,15 @@ public final class BaselineCompilerImpl extends BaselineCompiler {
       } else { // field is two words (double or long)
         if (VM.VerifyAssertions) VM._assert(fieldRef.getSize() == BYTES_IN_LONG);
         if (VM.BuildFor32Addr) {
-          asm.emitPOP_RegDisp(T0, Magic.getTocPointer().toWord().toOffset());                // store low part
-          asm.emitPOP_RegDisp(T0, Magic.getTocPointer().toWord().toOffset().plus(WORDSIZE)); // store high part
+          // JMM: field could be volatile so we need to guarantee atomic access
+          if (SSE2_BASE) {
+            asm.emitMOVQ_Reg_RegInd(XMM0, SP);
+            asm.emitMOVQ_RegDisp_Reg(T0, Magic.getTocPointer().toWord().toOffset(), XMM0);
+          } else {
+            asm.emitFLD_Reg_RegInd_Quad(FP0, SP);
+            asm.emitFSTP_RegDisp_Reg_Quad(T0, Magic.getTocPointer().toWord().toOffset(), FP0);
+          }
+          adjustStack(2 * WORDSIZE, false);
         } else {
           asm.generateJTOCpop(T0);
           if (fieldRef.getNumberOfStackSlots() != 1) {
@@ -2409,8 +2447,20 @@ public final class BaselineCompilerImpl extends BaselineCompiler {
       } else { // field is two words (double or long)
         if (VM.VerifyAssertions) VM._assert(fieldRef.getSize() == BYTES_IN_LONG);
         if (VM.BuildFor32Addr) {
-          asm.generateJTOCpop(fieldOffset);                // store low part
-          asm.generateJTOCpop(fieldOffset.plus(WORDSIZE)); // store high part
+          // JMM: we need to guarantee atomic access for volatile fields
+          if (field.isVolatile()) {
+            if (SSE2_BASE) {
+              asm.emitMOVQ_Reg_RegInd(XMM0, SP);
+              asm.emitMOVQ_Abs_Reg(Magic.getTocPointer().plus(fieldOffset), XMM0);
+            } else {
+              asm.emitFLD_Reg_RegInd_Quad(FP0, SP);
+              asm.emitFSTP_Abs_Reg_Quad(Magic.getTocPointer().plus(fieldOffset), FP0);
+            }
+            adjustStack(2 * WORDSIZE, false);
+          } else {
+            asm.emitPOP_Abs(Magic.getTocPointer().plus(fieldOffset));          // store low part
+            asm.emitPOP_Abs(Magic.getTocPointer().plus(fieldOffset).plus(WORDSIZE)); // store high part
+          }
         } else {
           asm.generateJTOCpop(fieldOffset);
           if (fieldRef.getNumberOfStackSlots() != 1) {
@@ -2618,7 +2668,7 @@ public final class BaselineCompilerImpl extends BaselineCompiler {
         asm.emitMOVZX_Reg_RegDisp_Word(T0, S0, fieldOffset); // T0 is field value
         asm.emitPUSH_Reg(T0);                                // place value on stack
       } else if (fieldType.isIntType() || fieldType.isFloatType() ||
-                 (VM.BuildFor32Addr && fieldType.isWordType())) {
+                 (VM.BuildFor32Addr && fieldType.isWordLikeType())) {
         // 32bit load
         stackMoveHelper(S0, offset);                         // S0 is object reference
         if (VM.BuildFor32Addr) {
@@ -2631,7 +2681,7 @@ public final class BaselineCompilerImpl extends BaselineCompiler {
         // 64bit load
         if (VM.VerifyAssertions) {
           VM._assert(fieldType.isLongType() || fieldType.isDoubleType() ||
-                     (VM.BuildFor64Addr && fieldType.isWordType()));
+                     (VM.BuildFor64Addr && fieldType.isWordLikeType()));
         }
         stackMoveHelper(S0, offset);                  // S0 is object reference
         if (VM.BuildFor32Addr && field.isVolatile()) {
@@ -2650,7 +2700,7 @@ public final class BaselineCompilerImpl extends BaselineCompiler {
           asm.emitPUSH_RegDisp(S0, fieldOffset.plus(ONE_SLOT)); // place high half on stack
           asm.emitPUSH_RegDisp(S0, fieldOffset);                // place low half on stack
         } else {
-          if (!fieldType.isWordType()) {
+          if (!fieldType.isWordLikeType()) {
             adjustStack(-WORDSIZE, true); // add empty slot
           }
           asm.emitPUSH_RegDisp(S0, fieldOffset); // place value on stack
@@ -3421,6 +3471,9 @@ public final class BaselineCompilerImpl extends BaselineCompiler {
       // firstLocalOffset is shifted down because more registers are saved
       firstLocalOffset = STACKFRAME_BODY_OFFSET.minus(JNICompiler.SAVED_GPRS_FOR_JNI << LG_WORDSIZE);
     } else {
+
+      genStackOverflowCheck();
+
       /* paramaters are on the stack and/or in registers;  There is space
        * on the stack for all the paramaters;  Parameter slots in the
        * stack are such that the first paramater has the higher address,
@@ -3513,24 +3566,6 @@ public final class BaselineCompilerImpl extends BaselineCompiler {
        */
       if (method.isForOsrSpecialization()) {
         return;
-      }
-
-      /*
-       * generate stacklimit check
-       */
-      if (isInterruptible) {
-        // S0<-limit
-        if (VM.BuildFor32Addr) {
-          asm.emitCMP_Reg_RegDisp(SP, TR, Entrypoints.stackLimitField.getOffset());
-        } else {
-          asm.emitCMP_Reg_RegDisp_Quad(SP, TR, Entrypoints.stackLimitField.getOffset());
-        }
-        asm.emitBranchLikelyNextInstruction();
-        ForwardReference fr = asm.forwardJcc(LGT);        // Jmp around trap if OK
-        asm.emitINT_Imm(RuntimeEntrypoints.TRAP_STACK_OVERFLOW + RVM_TRAP_BASE);     // trap
-        fr.resolve(asm);
-      } else {
-        // TODO!! make sure stackframe of uninterruptible method doesn't overflow guard page
       }
 
       if (!VM.runningTool && ((BaselineCompiledMethod) compiledMethod).hasCounterArray()) {
@@ -3639,6 +3674,85 @@ public final class BaselineCompilerImpl extends BaselineCompiler {
     }
   }
 
+  private void genStackOverflowCheck() {
+    /*
+     * Generate stacklimit check.
+     *
+     * NOTE: The stack overflow check MUST happen before the frame is created.
+     * If the check were to happen after frame creation, the stack pointer
+     * could already be well below the stack limit. This would be a problem
+     * because the IA32 stack overflow handling code imposes a bound on the
+     * difference between the stack pointer and the stack limit.
+     *
+     * NOTE: Frame sizes for the baseline compiler can get very large because
+     * each non-parameter local slot and each slot for the operand stack
+     * requires one machine word.
+     *
+     * The Java Virtual Machine Specification has an overview of the limits for
+     * the local words and operand words in section 4.11,
+     * "Limitations of the Java Virtual Machine".
+     */
+    if (isInterruptible) {
+      int frameSize = calculateRequiredSpaceForFrame(method);
+      // S0<-limit
+      if (VM.BuildFor32Addr) {
+        asm.emitMOV_Reg_Reg(S0, ESP);
+        asm.emitSUB_Reg_Imm(S0, frameSize);
+        asm.emitCMP_Reg_RegDisp(S0, TR, Entrypoints.stackLimitField.getOffset());
+      } else {
+        asm.emitMOV_Reg_Reg_Quad(S0, ESP);
+        asm.emitSUB_Reg_Imm_Quad(S0, frameSize);
+        asm.emitCMP_Reg_RegDisp_Quad(S0, TR, Entrypoints.stackLimitField.getOffset());
+      }
+      asm.emitBranchLikelyNextInstruction();
+      ForwardReference fr = asm.forwardJcc(LGT);        // Jmp around trap if OK
+      asm.emitINT_Imm(RuntimeEntrypoints.TRAP_STACK_OVERFLOW + RVM_TRAP_BASE);     // trap
+      fr.resolve(asm);
+    } else {
+      // TODO!! make sure stackframe of uninterruptible method doesn't overflow guard page
+    }
+  }
+
+  /**
+   * Calculates the space that is required for creating a frame for the
+   * given method, in bytes. This quantity is necessary to be able to do
+   * a stack overflow check before creating the frame.
+   * <p>
+   * Note that this method doesn't return the complete frame size:
+   * the parameters are in the caller's frame for the baseline compiler
+   * and the caller's frame has already been created when the callee is
+   * called. The additional space that's required is necessary for
+   * holding the non-parameter locals and the operand stack.
+   *
+   * @param method a method with bytecodes
+   * @return space required to create the frame, in bytes
+   */
+  public static int calculateRequiredSpaceForFrame(NormalMethod method) {
+    int frameWords = 3; // method id, EDI, EDX
+
+    if (method.hasBaselineSaveLSRegistersAnnotation()) {
+      frameWords++; // EBP
+    }
+
+    if (method.getDeclaringClass().hasDynamicBridgeAnnotation()) {
+      frameWords += 2; // T0, T1
+      if (SSE2_FULL) {
+        frameWords += (BASELINE_XMM_STATE_SIZE / WORDSIZE);
+      } else {
+        frameWords += (X87_FPU_STATE_SIZE / WORDSIZE);
+      }
+    }
+
+    frameWords += method.getOperandWords();
+    frameWords += method.getLocalWords();
+    // parameters are in the caller's frame so they don't
+    // count towards the space for the method's frame
+    frameWords -= method.getParameterWords();
+    if (!method.isStatic()) frameWords--;
+
+    return frameWords * WORDSIZE;
+  }
+
   /**
    * Generate instructions to acquire lock on entry to a method
    */
@@ -3690,7 +3804,12 @@ public final class BaselineCompilerImpl extends BaselineCompiler {
   @Inline
   private static void genNullCheck(Assembler asm, GPR objRefReg) {
     // compare to zero
-    asm.emitTEST_Reg_Reg(objRefReg, objRefReg);
+    if (VM.BuildFor32Addr) {
+      asm.emitTEST_Reg_Reg(objRefReg, objRefReg);
+    } else {
+      asm.emitTEST_Reg_Reg_Quad(objRefReg, objRefReg);
+    }
+
     // Jmp around trap if index is OK
     asm.emitBranchLikelyNextInstruction();
     ForwardReference fr = asm.forwardJcc(NE);
@@ -4095,8 +4214,12 @@ public final class BaselineCompilerImpl extends BaselineCompiler {
     if (VM.BuildForAdaptiveSystem && options.INVOCATION_COUNTERS) {
       int id = compiledMethod.getId();
       InvocationCounts.allocateCounter(id);
-      asm.emitMOV_Reg_Abs(ECX, Magic.getTocPointer().plus(AosEntrypoints.invocationCountsField.getOffset()));
-      asm.emitSUB_RegDisp_Imm(ECX, Offset.fromIntZeroExtend(compiledMethod.getId() << 2), 1);
+      asm.generateJTOCloadWord(ECX, AosEntrypoints.invocationCountsField.getOffset());
+      if (VM.BuildFor32Addr) {
+        asm.emitSUB_RegDisp_Imm(ECX, Offset.fromIntZeroExtend(compiledMethod.getId() << LOG_BYTES_IN_INT), 1);
+      } else {
+        asm.emitSUB_RegDisp_Imm_Quad(ECX, Offset.fromIntZeroExtend(compiledMethod.getId() << LOG_BYTES_IN_INT), 1);
+      }
       ForwardReference notTaken = asm.forwardJcc(GT);
       asm.emitPUSH_Imm(id);
       genParameterRegisterLoad(asm, 1);
@@ -4143,6 +4266,8 @@ public final class BaselineCompilerImpl extends BaselineCompiler {
               offsetToJavaArg = offsetToJavaArg.minus(WORDSIZE);
               asm.emitMOVSS_Reg_RegDisp((XMM)NATIVE_PARAMETER_FPRS[fpRegistersInUse], SP, offsetToJavaArg);
               fpRegistersInUse++;
+            } else { // skip stack slot
+              offsetToJavaArg = offsetToJavaArg.minus(WORDSIZE);
             }
           } else if (arg.isDoubleType()) {
             if (fpRegistersInUse < NATIVE_PARAMETER_FPRS.length) {
@@ -4150,6 +4275,8 @@ public final class BaselineCompilerImpl extends BaselineCompiler {
               offsetToJavaArg = offsetToJavaArg.minus(2 * WORDSIZE);
               asm.emitMOVSD_Reg_RegDisp((XMM)NATIVE_PARAMETER_FPRS[fpRegistersInUse], SP, offsetToJavaArg);
               fpRegistersInUse++;
+            } else { // skip stack slots
+              offsetToJavaArg = offsetToJavaArg.minus(2 * WORDSIZE);
             }
           } else if (arg.isLongType()) {
             if (gpRegistersInUse < NATIVE_PARAMETER_GPRS.length) {
@@ -4157,6 +4284,8 @@ public final class BaselineCompilerImpl extends BaselineCompiler {
               offsetToJavaArg = offsetToJavaArg.minus(2 * WORDSIZE);
               asm.emitMOV_Reg_RegDisp_Quad(NATIVE_PARAMETER_GPRS[gpRegistersInUse], SP, offsetToJavaArg);
               gpRegistersInUse++;
+            } else { // skip stack slots
+              offsetToJavaArg = offsetToJavaArg.minus(2 * WORDSIZE);
             }
           } else if (arg.isWordLikeType() || arg.isReferenceType()) {
             if (gpRegistersInUse < NATIVE_PARAMETER_GPRS.length) {
@@ -4164,6 +4293,8 @@ public final class BaselineCompilerImpl extends BaselineCompiler {
               offsetToJavaArg = offsetToJavaArg.minus(WORDSIZE);
               asm.emitMOV_Reg_RegDisp_Quad(NATIVE_PARAMETER_GPRS[gpRegistersInUse], SP, offsetToJavaArg);
               gpRegistersInUse++;
+            } else { // skip stack slot
+              offsetToJavaArg = offsetToJavaArg.minus(WORDSIZE);
             }
           } else {
             if (gpRegistersInUse < NATIVE_PARAMETER_GPRS.length) {
@@ -4171,6 +4302,8 @@ public final class BaselineCompilerImpl extends BaselineCompiler {
               offsetToJavaArg = offsetToJavaArg.minus(WORDSIZE);
               asm.emitMOV_Reg_RegDisp(NATIVE_PARAMETER_GPRS[gpRegistersInUse], SP, offsetToJavaArg);
               gpRegistersInUse++;
+            } else { // skip stack slot
+              offsetToJavaArg = offsetToJavaArg.minus(WORDSIZE);
             }
           }
         }
@@ -4183,11 +4316,7 @@ public final class BaselineCompilerImpl extends BaselineCompiler {
         for (int i = args.length - 1; i >= 1; i--) {
           if (!inRegister[i]) {
             TypeReference arg = args[i];
-            if (arg.isLongType() || arg.isDoubleType()) {
-              argsToPush += 2;
-            } else {
-              argsToPush ++;
-            }
+            argsToPush++; // 1 stack slot for each data type
           }
         }
         asm.emitTEST_Reg_Imm(SP, 0x8);
@@ -4198,6 +4327,8 @@ public final class BaselineCompilerImpl extends BaselineCompiler {
         }
       }
 
+      Offset initialOffsetToFirstArg = offsetToFirstArg;
+      Offset initialOffsetToLastArg = offsetToLastArg;
       // Generate argument pushing and call code upto twice, once with realignment
       ForwardReference afterCalls = null;
       for (int j = VM.BuildFor32Addr ? 1 : 0;  j < 2; j++) {
@@ -4207,6 +4338,9 @@ public final class BaselineCompilerImpl extends BaselineCompiler {
           offsetToLastArg = offsetToLastArg.plus(WORDSIZE);
         } else {
           if (dontRealignStack != null) dontRealignStack.resolve(asm);
+          offsetToFirstArg = initialOffsetToFirstArg;
+          offsetToLastArg = initialOffsetToLastArg;
+          paramBytes = 0;
         }
         // (4) Stack remaining args to target function from right-to-left
         //     (NB avoid the first argument holding the target function address)
@@ -4231,12 +4365,11 @@ public final class BaselineCompilerImpl extends BaselineCompiler {
           } else {
             if (!inRegister[i]) {
               if (arg.isLongType() || arg.isDoubleType()) {
-                adjustStack(-WORDSIZE, true);
-                asm.emitPUSH_RegDisp(SP, offsetToJavaArg.plus(WORDSIZE));
-                offsetToJavaArg = offsetToJavaArg.plus(4 * WORDSIZE);
-                offsetToFirstArg = offsetToFirstArg.plus(2 * WORDSIZE);
-                offsetToLastArg = offsetToLastArg.plus(2 * WORDSIZE);
-                paramBytes += 2 * WORDSIZE;
+                asm.emitPUSH_RegDisp(SP, offsetToJavaArg);
+                offsetToJavaArg = offsetToJavaArg.plus(3 * WORDSIZE);
+                offsetToFirstArg = offsetToFirstArg.plus(WORDSIZE);
+                offsetToLastArg = offsetToLastArg.plus(WORDSIZE);
+                paramBytes += WORDSIZE;
               } else {
                 asm.emitPUSH_RegDisp(SP, offsetToJavaArg);
                 offsetToJavaArg = offsetToJavaArg.plus(2 * WORDSIZE);
@@ -4427,5 +4560,11 @@ public final class BaselineCompilerImpl extends BaselineCompiler {
   protected ForwardReference emit_pending_goto(int bTarget) {
     return asm.generatePendingJMP(bTarget);
   }
+
+  @Override
+  protected void ending_method() {
+    asm.noteEndOfBytecodes();
+  }
+
 }
 

@@ -12,6 +12,7 @@
  */
 package org.jikesrvm.compilers.opt.regalloc.ia32;
 
+import static org.jikesrvm.compilers.opt.OptimizingCompilerException.opt_assert;
 import static org.jikesrvm.compilers.opt.driver.OptConstants.PRIMITIVE_TYPE_FOR_WORD;
 import static org.jikesrvm.compilers.opt.ir.Operators.BBEND;
 import static org.jikesrvm.compilers.opt.ir.Operators.NOP;
@@ -83,6 +84,7 @@ import org.jikesrvm.compilers.opt.ir.operand.ia32.IA32ConditionOperand;
 import org.jikesrvm.compilers.opt.regalloc.GenericStackManager;
 import org.jikesrvm.runtime.ArchEntrypoints;
 import org.jikesrvm.runtime.Entrypoints;
+import org.jikesrvm.util.Bits;
 import org.vmmagic.unboxed.Offset;
 
 /**
@@ -91,6 +93,20 @@ import org.vmmagic.unboxed.Offset;
  * functions.
  */
 public final class StackManager extends GenericStackManager {
+
+  /**
+   * the minimum size that a frame must have to be considered
+   * a big frame for a stack overflow check. In contrast to
+   * a small frame, a big frame is not allowed to leak into the
+   * guard region of the stack.
+   */
+  private static final int BIG_FRAME_MINIMUM_SIZE = 256;
+
+  /**
+   * the maximum difference between the stack pointer and the stack limit
+   * that can possibly occur when handling a stack overflow for opt frames
+   */
+  public static final int MAX_DIFFERENCE_TO_STACK_LIMIT = BIG_FRAME_MINIMUM_SIZE;
 
   /**
    * A frame offset for 108 bytes of stack space to store the
@@ -338,6 +354,11 @@ public final class StackManager extends GenericStackManager {
   }
 
   @Override
+  protected void verifyArchSpecificFrameSizeConstraints(int frameSize) {
+    if (VM.VerifyAssertions) opt_assert(Bits.fits(frameSize, 32));
+  }
+
+  @Override
   public void cleanUpAndInsertEpilogue() {
 
     Instruction inst = ir.firstInstructionInCodeOrder().nextInstructionInCodeOrder();
@@ -490,14 +511,14 @@ public final class StackManager extends GenericStackManager {
 
     // I. Buy a stackframe (including overflow check)
     // NOTE: We play a little game here.  If the frame we are buying is
-    //       very small (less than 256) then we can be sloppy with the
+    //       very small then we can be sloppy with the
     //       stackoverflow check and actually allocate the frame in the guard
     //       region.  We'll notice when this frame calls someone and take the
     //       stackoverflow in the callee. We can't do this if the frame is too big,
     //       because growing the stack in the callee and/or handling a hardware trap
     //       in this frame will require most of the guard region to complete.
-    //       See libvm.C.
-    if (frameFixedSize >= 256) {
+    //       See sysSignal_ia32.c
+    if (frameFixedSize >= BIG_FRAME_MINIMUM_SIZE) {
       // 1. Insert Stack overflow check.
       insertBigFrameStackOverflowCheck(plg);
 

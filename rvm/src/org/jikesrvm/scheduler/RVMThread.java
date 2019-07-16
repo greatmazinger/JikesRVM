@@ -31,6 +31,7 @@ import org.jikesrvm.architecture.ArchitectureFactory;
 import org.jikesrvm.architecture.StackFrameLayout;
 import org.jikesrvm.classloader.MemberReference;
 import org.jikesrvm.classloader.NormalMethod;
+import org.jikesrvm.classloader.RVMField;
 import org.jikesrvm.classloader.RVMMethod;
 import org.jikesrvm.compilers.baseline.BaselineCompiledMethod;
 import org.jikesrvm.compilers.common.CodeArray;
@@ -302,7 +303,7 @@ public final class RVMThread extends ThreadContext {
 
   /** Registers used by return barrier trampoline */
   @Entrypoint
-  private final AbstractRegisters trampolineRegisters = ArchitectureFactory.createRegisters();
+  private AbstractRegisters trampolineRegisters = ArchitectureFactory.createRegisters();
 
   /** Return address of stack frame hijacked by return barrier */
   @Entrypoint
@@ -588,6 +589,7 @@ public final class RVMThread extends ThreadContext {
    * For builds using counter-based sampling. This field holds a
    * processor-specific counter so that it can be updated efficiently on SMP's.
    */
+  @Entrypoint
   public int thread_cbs_counter;
 
   /**
@@ -639,29 +641,32 @@ public final class RVMThread extends ThreadContext {
   /**
    * Place to save register state when this thread is not actually running.
    */
-  @Entrypoint
+  @Entrypoint(fieldMayBeFinal = true)
   @Untraced
   public final AbstractRegisters contextRegisters;
   @SuppressWarnings("unused")
+  @Entrypoint(fieldMayBeFinal = true)
   private final AbstractRegisters contextRegistersShadow;
 
   /**
    * Place to save register state when this thread is not actually running.
    */
-  @Entrypoint
+  @Entrypoint(fieldMayBeFinal = true)
   @Untraced
   public final AbstractRegisters contextRegistersSave;
   @SuppressWarnings("unused")
+  @Entrypoint(fieldMayBeFinal = true)
   private final AbstractRegisters contextRegistersSaveShadow;
 
   /**
    * Place to save register state during hardware(C signal trap handler) or
    * software (RuntimeEntrypoints.athrow) trap handling.
    */
-  @Entrypoint
+  @Entrypoint(fieldMayBeFinal = true)
   @Untraced
   private final AbstractRegisters exceptionRegisters;
   @SuppressWarnings("unused")
+  @Entrypoint(fieldMayBeFinal = true)
   private final AbstractRegisters exceptionRegistersShadow;
 
   /** Count of recursive uncaught exceptions, we need to bail out at some point */
@@ -1141,7 +1146,7 @@ public final class RVMThread extends ThreadContext {
    * Used to transfer x87 to SSE registers on IA32
    */
   @SuppressWarnings({ "unused" })
-  // accessed via EntryPoints
+  @Entrypoint
   private double scratchStorage;
 
   /**
@@ -1159,6 +1164,7 @@ public final class RVMThread extends ThreadContext {
    * Flag set by external signal to request debugger activation at next thread
    * switch. See also: sysSignal.c
    */
+  @Entrypoint
   public static volatile boolean debugRequested;
 
   public volatile boolean asyncDebugRequestedForThisThread;
@@ -1179,8 +1185,6 @@ public final class RVMThread extends ThreadContext {
 
   /** In dump stack and dying */
   protected static boolean exitInProgress = false;
-
-  private static boolean worldStopped;
 
   /** Extra debug from traces */
   protected static final boolean traceDetails = false;
@@ -1576,7 +1580,10 @@ public final class RVMThread extends ThreadContext {
         communicationLockBySlot[threadSlot] = m;
         handshakeLock.unlock();
       }
-      Magic.sync(); /*
+      // TODO is this actually needed? The synchronization for locks
+      // should normally take care of required barriers and bar
+      // code movement
+      Magic.fence(); /*
                      * make sure that nobody sees the thread in any of the
                      * tables until the thread slot is inited
                      */
@@ -1606,7 +1613,7 @@ public final class RVMThread extends ThreadContext {
     threads[threadIdx] = replacementThread;
     replacementThread.threadIdx = threadIdx;
     threadIdx = -1;
-    Magic.sync(); /*
+    Magic.fence(); /*
                    * make sure that if someone is processing the threads array
                    * without holding the acctLock (which is definitely legal)
                    * then they see the replacementThread moved to the new index
@@ -1704,6 +1711,9 @@ public final class RVMThread extends ThreadContext {
       }
 
       initializeJNIEnv();
+
+      if (traceAcct)
+        VM.sysWriteln("Finishing initializeJniEnv() for the thread");
 
       if (VM.BuildForAdaptiveSystem) {
         onStackReplacementEvent = new OnStackReplacementEvent();
@@ -2636,8 +2646,23 @@ public final class RVMThread extends ThreadContext {
    */
   @Interruptible
   public void setupBootJavaThread() {
-    thread = java.lang.JikesRVMSupport.createThread(this,
-        "Jikes_RVM_Boot_Thread");
+    if (VM.BuildForOpenJDK) {
+      // Use a fake thread to get through the constructor calls
+      Thread fakeThread = (Thread) RuntimeEntrypoints.resolvedNewScalar(JikesRVMSupport.getTypeForClass(Thread.class).asClass());
+      // Need to set a valid priority, 10 is maximum
+      RVMField[] instanceFields = JikesRVMSupport.getTypeForClass(Thread.class).getInstanceFields();
+      RVMField priorityField = null;
+      for (RVMField f : instanceFields) {
+        if (f.getName().toString().equals("priority")) {
+          priorityField = f;
+          break;
+        }
+      }
+      priorityField.setIntValueUnchecked(fakeThread, 10);
+      thread = fakeThread;
+    }
+    // Create the real thread
+    thread = java.lang.JikesRVMSupport.createThread(this, "Jikes_RVM_Boot_Thread");
   }
 
   /**
@@ -2753,7 +2778,7 @@ public final class RVMThread extends ThreadContext {
    */
   @Interruptible
   @SuppressWarnings({ "unused" })
-  // Called by back-door methods.
+  @Entrypoint
   private static void startoff() {
     bindIfRequested();
 
@@ -3219,6 +3244,8 @@ public final class RVMThread extends ThreadContext {
             break;
         }
       }
+      if (VM.VerifyAssertions) VM._assert(t.hijackedReturnCalleeFp.EQ(hijackedFp),
+          "No matching thread found");
       return t.hijackedReturnAddress;
   }
 
@@ -3615,7 +3642,6 @@ public final class RVMThread extends ThreadContext {
     if (parkingPermit) {
       // fast path
       parkingPermit = false;
-      Magic.sync();
       return;
     }
     // massive retardation. someone might be holding the java.lang.Thread lock.
@@ -3912,7 +3938,7 @@ public final class RVMThread extends ThreadContext {
       // A: Yes, this is sufficient. We (Filip and Dave) talked about it and
       // agree that remote processors only need to execute isync. --Filip
       // make sure not get stale data
-      Magic.isync();
+      Magic.synchronizeInstructionCache();
     }
     // process memory management requests
     if (flushRequested && activeMutatorContext) {
@@ -4092,7 +4118,6 @@ public final class RVMThread extends ThreadContext {
         handshakeThreads[i] = null; // help GC
       }
     }
-    worldStopped = true;
 
     processAboutToTerminate(); /*
                                 * ensure that any threads that died while
@@ -4127,7 +4152,6 @@ public final class RVMThread extends ThreadContext {
     handshakeLock.lockWithHandshake();
 
     RVMThread current = getCurrentThread();
-    worldStopped = false;
     acctLock.lockNoHandshake();
     int numToHandshake = 0;
     for (int i = 0; i < numThreads;++i) {
@@ -4161,10 +4185,6 @@ public final class RVMThread extends ThreadContext {
   @Unpreemptible
   public static void hardHandshakeResume() {
     hardHandshakeResume(handshakeBlockAdapter,allButGC);
-  }
-
-  public static boolean worldStopped() {
-    return worldStopped;
   }
 
   /**
@@ -4568,6 +4588,17 @@ public final class RVMThread extends ThreadContext {
     Memory.memcopy(newFP, myFP, myDepth.toWord().toExtent());
 
     return newFP.diff(myFP);
+  }
+
+  private static ThreadGroup systemThreadGroup;
+
+  public static void setThreadGroupForSystemThreads(
+      ThreadGroup systemThreadGroup) {
+        RVMThread.systemThreadGroup = systemThreadGroup;
+  }
+
+  public static ThreadGroup getThreadGroupForSystemThreads() {
+    return RVMThread.systemThreadGroup;
   }
 
   /**

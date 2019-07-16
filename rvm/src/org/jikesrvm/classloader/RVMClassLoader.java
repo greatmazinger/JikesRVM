@@ -12,22 +12,8 @@
  */
 package org.jikesrvm.classloader;
 
-import static org.jikesrvm.classloader.ClassLoaderConstants.TAG_DOUBLE;
-import static org.jikesrvm.classloader.ClassLoaderConstants.TAG_FIELDREF;
-import static org.jikesrvm.classloader.ClassLoaderConstants.TAG_FLOAT;
-import static org.jikesrvm.classloader.ClassLoaderConstants.TAG_INT;
-import static org.jikesrvm.classloader.ClassLoaderConstants.TAG_INTERFACE_METHODREF;
-import static org.jikesrvm.classloader.ClassLoaderConstants.TAG_LONG;
-import static org.jikesrvm.classloader.ClassLoaderConstants.TAG_MEMBERNAME_AND_DESCRIPTOR;
-import static org.jikesrvm.classloader.ClassLoaderConstants.TAG_METHODREF;
-import static org.jikesrvm.classloader.ClassLoaderConstants.TAG_STRING;
-import static org.jikesrvm.classloader.ClassLoaderConstants.TAG_TYPEREF;
-import static org.jikesrvm.classloader.ClassLoaderConstants.TAG_UNUSED;
-import static org.jikesrvm.classloader.ClassLoaderConstants.TAG_UTF;
-
 import java.io.ByteArrayInputStream;
-import java.io.DataInputStream;
-import java.io.IOException;
+import java.io.File;
 import java.io.InputStream;
 
 import org.jikesrvm.Properties;
@@ -161,12 +147,72 @@ public class RVMClassLoader {
   }
 
   /**
+   * Overwrites the application repositories with the given classpath.
+   * <p>
+   * Only for tests.
+   *
+   * @param classpath the new classpath
+   */
+  static void overwriteApplicationRepositoriesForUnitTest(String classpath) {
+    applicationRepositories = classpath;
+  }
+
+  /**
+   * Overwrites the agent repositories with the given classpath.
+   * <p>
+   * Only for tests.
+   *
+   * @param classpath the new classpath
+   */
+  static void overwriteAgentPathForUnitTest(String classpath) {
+    agentRepositories = classpath;
+  }
+
+  private static String buildRealClasspath(String classpath) {
+    if (agentRepositories == null) {
+      return classpath;
+    }
+    return classpath + File.pathSeparator + agentRepositories;
+  }
+
+  /**
    * Get list of places currently being searched for application
    * classes and resources.
    * @return names of directories, .zip files, and .jar files
    */
   public static String getApplicationRepositories() {
     return applicationRepositories;
+  }
+
+  /**
+   * The classpath entries that are added implicitly by Java Agents for
+   * the jars that contain the agents.
+   */
+  private static String agentRepositories;
+
+  /**
+   * Adds repositories for a Java Agent.
+   *
+   * @param agentClasspath the classpath entry to add
+   */
+  public static void addAgentRepositories(String agentClasspath) {
+    if (agentRepositories == null) {
+      agentRepositories = agentClasspath;
+    } else {
+      agentRepositories = agentRepositories + File.pathSeparator + agentClasspath;
+    }
+  }
+
+  /**
+   * Rebuilds the application repositories to include jars for Java agents.
+   * Called after command line arg parsing is done.
+   */
+  public static void rebuildApplicationRepositoriesWithAgents() {
+    if (agentRepositories == null) {
+      return;
+    }
+    String newApplicationRepositories = applicationRepositories + File.pathSeparator + agentRepositories;
+    setApplicationRepositories(newApplicationRepositories);
   }
 
   /** Are we getting the application CL?  Access is synchronized via the
@@ -324,126 +370,9 @@ public class RVMClassLoader {
 
   public static RVMType defineClassInternal(String className, InputStream is, ClassLoader classloader)
       throws ClassFormatError {
-    TypeReference tRef;
-    if (className == null) {
-      // NUTS: Our caller hasn't bothered to tell us what this class is supposed
-      //       to be called, so we must read the input stream and discover it ourselves
-      //       before we actually can create the RVMClass instance.
-      try {
-        is.mark(is.available());
-        tRef = getClassTypeRef(new DataInputStream(is), classloader);
-        is.reset();
-      } catch (IOException e) {
-        ClassFormatError cfe = new ClassFormatError(e.getMessage());
-        cfe.initCause(e);
-        throw cfe;
-      }
-    } else {
-      Atom classDescriptor = Atom.findOrCreateAsciiAtom(className).descriptorFromClassName();
-      tRef = TypeReference.findOrCreate(classloader, classDescriptor);
-    }
-
-    try {
-      if (VM.VerifyAssertions) VM._assert(tRef.isClassType());
-      if (VM.TraceClassLoading && VM.runningVM) {
-        VM.sysWriteln("loading \"" + tRef.getName() + "\" with " + classloader);
-      }
-      RVMClass ans = ClassFileReader.readClass(tRef, new DataInputStream(is));
-      tRef.setType(ans);
-      return ans;
-    } catch (IOException e) {
-      ClassFormatError cfe = new ClassFormatError(e.getMessage());
-      cfe.initCause(e);
-      throw cfe;
-    }
+    ClassFileReader reader = new ClassFileReader(is);
+    return reader.readClass(className, classloader);
   }
-
-  // Shamelessly cloned & owned from ClassFileReader.readClass constructor....
-  private static TypeReference getClassTypeRef(DataInputStream input, ClassLoader cl)
-      throws IOException, ClassFormatError {
-    int magic = input.readInt();
-    if (magic != 0xCAFEBABE) {
-      throw new ClassFormatError("bad magic number " + Integer.toHexString(magic));
-    }
-
-    // Drop class file version number on floor. readClass will do the check later.
-    input.readUnsignedShort(); // minor ID
-    input.readUnsignedShort(); // major ID
-
-    //
-    // pass 1: read constant pool
-    //
-    int[] constantPool = new int[input.readUnsignedShort()];
-    byte[] tmpTags = new byte[constantPool.length];
-
-    // note: slot 0 is unused
-    for (int i = 1; i < constantPool.length; i++) {
-      tmpTags[i] = input.readByte();
-      switch (tmpTags[i]) {
-        case TAG_UTF: {
-          byte[] utf = new byte[input.readUnsignedShort()];
-          input.readFully(utf);
-          constantPool[i] = Atom.findOrCreateUtf8Atom(utf).getId();
-          break;
-        }
-
-        case TAG_UNUSED:
-          break;
-
-        case TAG_INT:
-        case TAG_FLOAT:
-        case TAG_FIELDREF:
-        case TAG_METHODREF:
-        case TAG_INTERFACE_METHODREF:
-        case TAG_MEMBERNAME_AND_DESCRIPTOR:
-          input.readInt(); // drop on floor
-          break;
-
-        case TAG_LONG:
-        case TAG_DOUBLE:
-          i++;
-          input.readLong(); // drop on floor
-          break;
-
-        case TAG_TYPEREF:
-          constantPool[i] = input.readUnsignedShort();
-          break;
-
-        case TAG_STRING:
-          input.readUnsignedShort(); // drop on floor
-          break;
-
-        default:
-          throw new ClassFormatError("bad constant pool entry: " + tmpTags[i]);
-      }
-    }
-
-    //
-    // pass 2: post-process type constant pool entries
-    // (we must do this in a second pass because of forward references)
-    //
-    for (int i = 1; i < constantPool.length; i++) {
-      switch (tmpTags[i]) {
-        case TAG_LONG:
-        case TAG_DOUBLE:
-          ++i;
-          break;
-
-        case TAG_TYPEREF: { // in: utf index
-          Atom typeName = Atom.getAtom(constantPool[constantPool[i]]);
-          constantPool[i] = TypeReference.findOrCreate(cl, typeName.descriptorFromClassName()).getId();
-          break;
-        } // out: type reference id
-      }
-    }
-
-    // drop modifiers on floor.
-    input.readUnsignedShort();
-
-    int myTypeIndex = input.readUnsignedShort();
-    return TypeReference.getTypeRef(constantPool[myTypeIndex]);
-  }
-
 
   /**
    * An unpleasant hack to deal with the problem of replaying work

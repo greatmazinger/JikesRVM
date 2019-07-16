@@ -130,8 +130,6 @@ public class JMXSupport {
   public static synchronized Thread getThreadForId(long id) {
     getAllLiveThreadIds();
     Thread thread = threadIdToThread.get(id);
-    if (thread == null)
-      throw new IllegalArgumentException("Invalid id: " + id);
     return thread;
   }
 
@@ -196,7 +194,7 @@ public class JMXSupport {
         rvmThread.unblock(RVMThread.stackTraceBlockAdapter);
     }
 
-    return JikesRVMStackTraceSupport.convertToJavaClassLibraryStackTrace(elements);
+    return StackTrace.convertToJavaClassLibraryStackTrace(elements);
   }
 
 }

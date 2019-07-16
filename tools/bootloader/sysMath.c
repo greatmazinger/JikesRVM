@@ -18,6 +18,10 @@
 #include <stdlib.h> // strtod, exit
 #include <errno.h> // errno
 
+#ifdef __x86_64__
+#include <emmintrin.h>
+#endif
+
 double maxlong = 0.5 + (double)0x7fffffffffffffffLL;
 double maxint  = 0.5 + (double)0x7fffffff;
 

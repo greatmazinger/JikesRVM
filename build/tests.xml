@@ -277,6 +277,9 @@
       <replace file="${build.tests.dir}/deleteme.txt" token="]]&gt;" value="]]&gt;]]&lt;![CDATA[&gt;"/>
       <concat destfile="${results.file}" append="true">
         <path path="${build.tests.dir}/deleteme.txt"/>
+        <filterchain>
+          <deletecharacters chars="\f"/>
+        </filterchain>
       </concat>
       <res>]]<![CDATA[></output>]]></res>
     </sequential>
@@ -406,7 +409,7 @@
   -->
   <macrodef name="rvm">
     <attribute name="tag" default=""/>
-    <attribute name="class"/>
+    <attribute name="class" default=""/>
     <attribute name="args" default=""/>
     <attribute name="classpath" default=""/>
     <attribute name="bootclasspath" default=""/>
@@ -440,7 +443,7 @@
 
   <macrodef name="prepareRvm">
     <attribute name="tag" default=""/>
-    <attribute name="class"/>
+    <attribute name="class" default=""/>
     <attribute name="args" default=""/>
     <attribute name="classpath" default=""/>
     <attribute name="bootclasspath" default=""/>
@@ -622,7 +625,7 @@
   <!-- run test then compare output to expected value in file named @{class}@{name}.expected and output results -->
   <macrodef name="runCompareTest">
     <attribute name="tag"/>
-    <attribute name="class"/>
+    <attribute name="class" default=""/>
     <attribute name="classpath" default=""/>
     <attribute name="bootclasspath" default=""/>
     <attribute name="args" default=""/>
@@ -632,6 +635,7 @@
     <attribute name="rvmArgs" default=""/>
     <attribute name="timeLimit" default=""/>
     <attribute name="exitCode" default="0"/>
+    <attribute name="expectedFile" default="@{class}"/>
     <sequential>
       <rvm tag="@{tag}"
            class="@{class}"
@@ -644,7 +648,7 @@
            timeLimit="@{timeLimit}"
            exitCode="@{exitCode}"/>
 
-      <echo message="@{class}" file="${build.tests.dir}/deleteme.txt"/>
+      <echo message="@{expectedFile}" file="${build.tests.dir}/deleteme.txt"/>
       <replace file="${build.tests.dir}/deleteme.txt" token="." value="${file.separator}"/>
       <loadfile property="test.@{tag}.expected.output.file" srcFile="${build.tests.dir}/deleteme.txt"/>
 

@@ -18,7 +18,7 @@ import org.vmmagic.pragma.*;
 import org.vmmagic.unboxed.*;
 
 /**
- * This abstract class implements the fast past for a segregated free list.
+ * This abstract class implements the fast path for a segregated free list.
  */
 @Uninterruptible
 public abstract class SegregatedFreeList<S extends SegregatedFreeListSpace> extends Allocator {
@@ -78,11 +78,7 @@ public abstract class SegregatedFreeList<S extends SegregatedFreeListSpace> exte
       freeList.set(sizeClass, cell.loadAddress());
       /* Clear the free list link */
       cell.store(Address.zero());
-      if (alignedBytes != bytes) {
-        /* Ensure aligned as requested. */
-        cell = alignAllocation(cell, align, offset);
-      }
-      return cell;
+      return alignAllocation(cell, align, offset);
     }
     return allocSlow(bytes, align, offset);
   }
